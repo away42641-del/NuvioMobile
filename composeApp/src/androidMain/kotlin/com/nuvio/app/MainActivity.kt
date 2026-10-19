@@ -29,6 +29,7 @@ import com.nuvio.app.features.membership.MemberAssetStorage
 import com.nuvio.app.features.library.LibraryStorage
 import com.nuvio.app.features.details.MetaScreenSettingsStorage
 import com.nuvio.app.features.home.HomeCatalogSettingsStorage
+import com.nuvio.app.features.home.category.HomeCategorySettingsStorage
 import com.nuvio.app.features.mdblist.MdbListSettingsStorage
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationPlatform
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsStorage
@@ -101,6 +102,7 @@ open class MainActivity : AppCompatActivity() {
         MetaScreenSettingsStorage.initialize(applicationContext)
         com.nuvio.app.features.shuffle.EpisodeShuffleStorage.initialize(applicationContext)
         HomeCatalogSettingsStorage.initialize(applicationContext)
+        HomeCategorySettingsStorage.initialize(applicationContext)
         PlayerSettingsStorage.initialize(applicationContext)
         PlayerTrackPreferenceStorage.initialize(applicationContext)
         P2pSettingsStorage.initialize(applicationContext)
