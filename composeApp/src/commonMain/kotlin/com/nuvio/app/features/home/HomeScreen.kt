@@ -34,6 +34,17 @@ import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.core.ui.rememberHeroStretchState
 import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
 import com.nuvio.app.core.ui.withDuplicateSafeLazyKeys
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.ui.Alignment
+import com.nuvio.app.features.home.category.HOME_CATEGORY_BAR_HEIGHT
+import com.nuvio.app.features.home.category.HomeCategory
+import com.nuvio.app.features.home.category.HomeCategoryBar
+import com.nuvio.app.features.home.category.HomeCategoryCustomizeSheet
+import com.nuvio.app.features.home.category.HomeCategoryRepository
+import com.nuvio.app.features.home.category.buildHomeCategoryPage
+import com.nuvio.app.features.home.category.homeCategoryRows
+import com.nuvio.app.features.home.category.isVisibleIn
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.servers.ServerRepository
@@ -545,6 +556,19 @@ fun HomeScreen(
     }
     val hasContinueWatchingRows = continueWatchingItems.isNotEmpty() || upcomingItems.isNotEmpty()
 
+    // --- Home categories (Discover / Movies / TV Shows / Anime / Live TV) ---
+    val categoryUiState by HomeCategoryRepository.uiState.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { HomeCategoryRepository.ensureLoaded() }
+    var showCategoryCustomize by remember { mutableStateOf(false) }
+    val selectedCategory = categoryUiState.effectiveSelected
+    val categoryContinueWatchingItems = remember(continueWatchingItems, selectedCategory) {
+        continueWatchingItems.filter { it.isVisibleIn(selectedCategory) }
+    }
+    val categoryUpcomingItems = remember(upcomingItems, selectedCategory) {
+        upcomingItems.filter { it.isVisibleIn(selectedCategory) }
+    }
+    LaunchedEffect(selectedCategory) { homeListState.scrollToItem(0) }
+
     ScreenActivityEffect(activeProfileId, continueWatchingItems.isNotEmpty(), hasUserScrolledContinueWatching) { active ->
         if (!active) return@ScreenActivityEffect
         if (!hasUserScrolledContinueWatching && continueWatchingItems.isNotEmpty()) {
@@ -889,6 +913,31 @@ fun HomeScreen(
     val sectionsMap = remember(homeUiState.sections) {
         homeUiState.sections.associateBy(HomeCatalogSection::key)
     }
+    val categoryPage = remember(
+        selectedCategory,
+        homeUiState.sections,
+        homeUiState.heroItems,
+        watchedUiState.watchedKeys,
+        fullyWatchedSeriesKeys,
+    ) {
+        if (selectedCategory == HomeCategory.Discover) {
+            null
+        } else {
+            buildHomeCategoryPage(
+                category = selectedCategory,
+                sections = homeUiState.sections,
+                heroItems = homeUiState.heroItems,
+                isWatched = { item ->
+                    WatchingState.isPosterWatched(
+                        watchedKeys = watchedUiState.watchedKeys,
+                        item = item,
+                        fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+                    )
+                },
+            )
+        }
+    }
+    val displayedHeroItems = categoryPage?.heroItems ?: homeUiState.heroItems
     val enabledHomeItems = remember(homeSettingsUiState.items) {
         homeSettingsUiState.items.filter { it.enabled }
     }
@@ -924,10 +973,10 @@ fun HomeScreen(
     }
     val hasRenderableHomeRows = homeUiState.sections.isNotEmpty() || hasRenderableCollectionRows
     val showHeroSlot = shouldShowHomeHeroSlot(
-        heroEnabled = homeSettingsUiState.heroEnabled,
-        hasHeroItems = homeUiState.heroItems.isNotEmpty(),
+        heroEnabled = homeSettingsUiState.heroEnabled && (categoryPage?.showHero ?: true),
+        hasHeroItems = displayedHeroItems.isNotEmpty(),
         isResolvingHeroSources = isResolvingHeroSources,
-        hasRenderableHomeRows = hasRenderableHomeRows,
+        hasRenderableHomeRows = if (categoryPage == null) hasRenderableHomeRows else false,
     )
     MaintainHomeScrollPosition(
         listState = homeListState,
@@ -935,7 +984,7 @@ fun HomeScreen(
         showHeroSlot = showHeroSlot,
     )
     val showHeroSkeleton = showHeroSlot &&
-        homeUiState.heroItems.isEmpty() &&
+        displayedHeroItems.isEmpty() &&
         isResolvingHeroSources
     val isInitialHomeContentLoading = shouldShowInitialHomeLoading(
         hasRenderableHomeRows = hasRenderableHomeRows,
@@ -990,6 +1039,12 @@ fun HomeScreen(
             topPadding = if (showHeroSlot) 0.dp else null,
             listState = homeListState,
         ) {
+            if (!showHeroSlot) {
+                item(key = "home_category_bar_spacer", contentType = "category_bar_spacer") {
+                    Spacer(Modifier.height(HOME_CATEGORY_BAR_HEIGHT))
+                }
+            }
+
             if (showHeroSlot) {
                 item(key = "home_hero", contentType = "hero") {
                     Crossfade(
@@ -1004,8 +1059,8 @@ fun HomeScreen(
                                 mobileBelowSectionHeightHint = mobileHeroBelowSectionHeightHint,
                             )
 
-                            homeUiState.heroItems.isNotEmpty() -> HomeHeroSection(
-                                items = homeUiState.heroItems,
+                            displayedHeroItems.isNotEmpty() -> HomeHeroSection(
+                                items = displayedHeroItems,
                                 modifier = Modifier,
                                 viewportHeight = maxHeight,
                                 mobileBelowSectionHeightHint = mobileHeroBelowSectionHeightHint,
@@ -1028,8 +1083,8 @@ fun HomeScreen(
                 isInitialHomeContentLoading -> {
                     homeContinueWatchingSections(
                         preferences = continueWatchingPreferences,
-                        continueWatchingItems = continueWatchingItems,
-                        upcomingItems = upcomingItems,
+                        continueWatchingItems = categoryContinueWatchingItems,
+                        upcomingItems = categoryUpcomingItems,
                         dataSourceKey = effectiveWatchProgressSource,
                         sectionPadding = homeSectionPadding,
                         layout = continueWatchingLayout,
@@ -1053,8 +1108,8 @@ fun HomeScreen(
                 !hasActiveAddons && !hasServerLibraries && !hasRenderableCollectionRows -> {
                     homeContinueWatchingSections(
                         preferences = continueWatchingPreferences,
-                        continueWatchingItems = continueWatchingItems,
-                        upcomingItems = upcomingItems,
+                        continueWatchingItems = categoryContinueWatchingItems,
+                        upcomingItems = categoryUpcomingItems,
                         dataSourceKey = effectiveWatchProgressSource,
                         sectionPadding = homeSectionPadding,
                         layout = continueWatchingLayout,
@@ -1101,7 +1156,7 @@ fun HomeScreen(
                     }
                 }
 
-                homeUiState.sections.isEmpty() && homeUiState.heroItems.isEmpty() &&
+                categoryPage == null && homeUiState.sections.isEmpty() && homeUiState.heroItems.isEmpty() &&
                     (!continueWatchingPreferences.isVisible || !hasContinueWatchingRows) &&
                     !hasRenderableCollectionRows -> {
                     item(key = "home_empty", contentType = "empty") {
@@ -1144,8 +1199,8 @@ fun HomeScreen(
                 else -> {
                     homeContinueWatchingSections(
                         preferences = continueWatchingPreferences,
-                        continueWatchingItems = continueWatchingItems,
-                        upcomingItems = upcomingItems,
+                        continueWatchingItems = categoryContinueWatchingItems,
+                        upcomingItems = categoryUpcomingItems,
                         dataSourceKey = effectiveWatchProgressSource,
                         sectionPadding = homeSectionPadding,
                         layout = continueWatchingLayout,
@@ -1156,6 +1211,18 @@ fun HomeScreen(
                         disintegrationRequest = continueWatchingDisintegrationRequest,
                     )
 
+                    if (categoryPage != null) {
+                        homeCategoryRows(
+                            page = categoryPage,
+                            showEmptyState = !homeUiState.isLoading,
+                            sectionPadding = homeSectionPadding,
+                            watchedKeys = watchedUiState.watchedKeys,
+                            fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+                            onCatalogClick = onCatalogClick,
+                            onPosterClick = onPosterClick,
+                            onPosterLongClick = onPosterLongClick,
+                        )
+                    } else {
                     keyedEnabledHomeItems.forEach { keyedSettingsItem ->
                         val settingsItem = keyedSettingsItem.value
                         if (settingsItem.isCollection) {
@@ -1194,8 +1261,27 @@ fun HomeScreen(
                             }
                         }
                     }
+                    }
                 }
             }
+        }
+
+        HomeCategoryBar(
+            categories = categoryUiState.visible,
+            selected = selectedCategory,
+            onSelect = HomeCategoryRepository::select,
+            onCustomizeClick = { showCategoryCustomize = true },
+            modifier = Modifier.align(Alignment.TopCenter),
+        )
+
+        if (showCategoryCustomize) {
+            HomeCategoryCustomizeSheet(
+                entries = categoryUiState.entries,
+                onToggle = HomeCategoryRepository::setEnabled,
+                onMove = HomeCategoryRepository::move,
+                onReset = HomeCategoryRepository::reset,
+                onDismiss = { showCategoryCustomize = false },
+            )
         }
     }
 }
